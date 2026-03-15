@@ -61,6 +61,37 @@ Nothing specified — but always prefer less scope over more.
 - dash-bootstrap-components (Flatly theme) for styling
 - uv for package management
 
+## Future Improvements — Enhanced Market Share Simulation
+
+The current simulator uses own-price elasticity and a flat cannibalization rate. To properly assess the impact of one SKU within the portfolio and on competition, the following data and logic enhancements are needed:
+
+### Within-portfolio (sibling) assessment
+- **Cross-price elasticity between specific SKU pairs** — e.g. "if Budweiser 330ml drops 5%, Bud Light 330ml loses X% volume". The current flat cannibalization rate doesn't distinguish which sibling is affected or by how much.
+- **Substitution hierarchy** — segment matters: a Premium SKU price cut steals more from other Premium SKUs than from Value SKUs. The engine should weight cannibalization by segment proximity.
+
+### Competitive assessment
+- **Competitor prices** (`competitor_price`) — external competitor pricing to calculate price gaps and flag vulnerability (e.g. "your SKU is 15% above the nearest competitor").
+- **Price index vs category** (`price_index`) — where each SKU sits relative to segment average (100 = parity). Enables quick identification of over/under-priced SKUs.
+- **Cross-manufacturer elasticity** (`cross_elasticity`) — volume sensitivity to competitor price changes. Enables modelling "if Heineken drops 5%, how much Budweiser volume is at risk?"
+
+### Market context
+- **Total market/category volume** (`market_volume_segment`) — needed to calculate actual market share rather than just relative portfolio share.
+- **Channel split** (on-trade vs off-trade) — pricing dynamics differ significantly between channels; a single elasticity value may not capture this.
+
+### Suggested new input columns
+
+| Column | Type | Purpose |
+|---|---|---|
+| `competitor_price` | float | Direct competitor's current unit price |
+| `price_index` | float | SKU price vs segment average (100 = parity) |
+| `cross_elasticity` | float | Volume sensitivity to competitor price changes |
+| `market_volume_segment` | int | Total market volume for the price segment |
+
+### Impact on engine logic
+- `simulate_portfolio()` should account for cross-SKU elasticity pairs, not just flat cannibalization
+- Competitor price gaps should inform whether a price increase is safe (large gap = risky) or a decrease is warranted
+- Market share calculations should use total market volume as denominator, not just portfolio volume
+
 ## How to use this file
 - Before building any feature, check: is it listed above?
 - Before adding scope, check: is it in the cuts list?

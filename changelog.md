@@ -1,5 +1,32 @@
 # Changelog
 
+## Iteration 2 — Scenario Simulator
+
+**Status:** COMPLETED
+
+**Planned scope:**
+- Click any SKU, drag a price slider, and see live revenue impact across the whole portfolio accounting for cannibalization
+
+**Delivered:**
+- [x] **Scenario Simulator view** — new view in sidebar dropdown
+- [x] **SKU selector table** — sortable, filterable table to pick a SKU
+- [x] **Price slider** — -20% to +20% with 1% steps, persists across SKU selections
+- [x] **Multi-SKU adjustments** — price changes accumulate in `dcc.Store`; adjust multiple SKUs without losing prior changes
+- [x] **Reset All button** — clears all adjustments back to baseline
+- [x] **Live portfolio KPIs** — SKUs adjusted count, baseline vs simulated profit, total impact with % change
+- [x] **Adjusted SKU impact chart** — horizontal bar chart of profit impact for changed SKUs only
+- [x] **Manufacturer-level impact chart** — profit impact grouped by manufacturer
+- [x] **Full results table** — all SKUs with adjusted rows highlighted in yellow, profit impact color-coded
+- [x] **`simulate_portfolio()` engine function** — calculates portfolio-wide impact of arbitrary price changes per SKU
+- [x] **9 new tests passing** — 23 total across both iterations
+
+**Files changed:**
+- `app.py` — added simulator view, slider callbacks, results rendering
+- `src/pricing_engine.py` — added `simulate_portfolio()` function
+
+**Files added:**
+- `tests/test_iteration2.py` — 9 tests for scenario simulator
+
 ## Iteration 1 — CSV/Excel Upload + Sortable Verdict Table
 
 **Status:** COMPLETED

@@ -129,3 +129,63 @@ def analyse_sku(sku_id: str, df: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
     scenarios = run_scenarios(row)
     rec = recommend(scenarios)
     return rec, scenarios
+
+
+def simulate_portfolio(df: pd.DataFrame, price_changes: dict) -> pd.DataFrame:
+    """
+    Simulate portfolio-wide impact of custom price changes.
+
+    Args:
+        df: Full SKU DataFrame.
+        price_changes: dict mapping sku_id -> price change percentage (e.g. {"ABI001": 5.0}).
+                       SKUs not in the dict are treated as 0% change.
+
+    Returns:
+        DataFrame with one row per SKU showing baseline vs simulated metrics.
+    """
+    rows = []
+    for _, sku in df.iterrows():
+        sid = sku["sku_id"]
+        pct = price_changes.get(sid, 0.0) / 100.0  # convert % to decimal
+
+        base_prof = baseline_profit(sku)
+        new_price = sku["current_price_per_unit"] * (1 + pct)
+
+        # Own-volume impact
+        volume_change_pct = sku["elasticity"] * pct
+        new_volume = max(sku["volume_2025_units"] * (1 + volume_change_pct), 0)
+
+        # Own-SKU profit
+        own_profit = new_price * new_volume * sku["unit_volume_ml"] * sku["profit_pct_per_ml"]
+
+        # Cannibalization
+        volume_delta = new_volume - sku["volume_2025_units"]
+        sibling_volume_shift = -volume_delta * sku["cannibalization_rate"]
+        sibling_profit_delta = (
+            sibling_volume_shift
+            * sku["current_price_per_unit"]
+            * sku["unit_volume_ml"]
+            * sku["profit_pct_per_ml"]
+        )
+
+        net_profit = own_profit + sibling_profit_delta
+        profit_impact = net_profit - base_prof
+
+        rows.append({
+            "sku_id": sid,
+            "sku_name": sku["sku_name"],
+            "manufacturer": sku["manufacturer"],
+            "brand": sku["brand"],
+            "segment": sku["price_segment"],
+            "current_price": sku["current_price_per_unit"],
+            "price_change_pct": pct * 100,
+            "new_price": round(new_price, 4),
+            "current_volume": sku["volume_2025_units"],
+            "new_volume": round(new_volume),
+            "volume_change_pct": round(volume_change_pct * 100, 2),
+            "baseline_profit": round(base_prof, 2),
+            "new_profit": round(net_profit, 2),
+            "profit_impact": round(profit_impact, 2),
+        })
+
+    return pd.DataFrame(rows)

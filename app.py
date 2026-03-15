@@ -12,7 +12,7 @@ from plotly.subplots import make_subplots
 from dash import Dash, html, dcc, dash_table, Input, Output, State, callback, no_update
 import dash_bootstrap_components as dbc
 
-from pricing_engine import load_data, analyse_sku, run_scenarios, recommend, baseline_profit
+from pricing_engine import load_data, analyse_sku, run_scenarios, recommend, baseline_profit, simulate_portfolio
 
 # ── Required columns for uploaded files ──────────────────────────────────────
 REQUIRED_COLS = [
@@ -111,6 +111,7 @@ sidebar = html.Div(
             id="view-select",
             options=[
                 {"label": "All Manufacturers", "value": "overview"},
+                {"label": "Scenario Simulator", "value": "simulator"},
                 {"label": "SKU Detail", "value": "detail"},
             ],
             value="overview",
@@ -145,6 +146,7 @@ content = html.Div(id="main-content", style={"marginLeft": "18%", "padding": "2r
 
 app.layout = html.Div([
     dcc.Store(id="data-store", data=default_df.to_json(date_format="iso", orient="split")),
+    dcc.Store(id="sim-price-changes", data={}),
     sidebar,
     content,
 ])
@@ -194,7 +196,7 @@ def update_manufacturer_options(json_data):
     Input("view-select", "value"),
 )
 def toggle_filters(view):
-    if view == "overview":
+    if view in ("overview", "simulator"):
         return {"display": "none"}
     return {"display": "block"}
 
@@ -210,6 +212,8 @@ def render_view(view, sku_id, json_data):
     df = pd.read_json(io.StringIO(json_data), orient="split")
     if view == "overview":
         return build_overview_layout(df)
+    if view == "simulator":
+        return build_simulator_layout(df)
     return build_detail_layout(sku_id, df)
 
 
@@ -479,6 +483,276 @@ def build_overview_layout(df):
         html.Hr(),
         html.H5("Impact of Recommended Price Changes", className="mb-3"),
         dcc.Graph(figure=fig_waterfall),
+    ])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCENARIO SIMULATOR VIEW (Iteration 2)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def build_simulator_layout(df):
+    """Build the scenario simulator page with SKU selector and price slider."""
+    sku_list = []
+    for _, row in df.iterrows():
+        sku_list.append({
+            "sku_id": row["sku_id"],
+            "SKU": row["sku_name"],
+            "Manufacturer": row["manufacturer"],
+            "Brand": row["brand"],
+            "Segment": row["price_segment"],
+            "Current Price": round(row["current_price_per_unit"], 2),
+            "Elasticity": round(row["elasticity"], 2),
+        })
+
+    sku_table = dash_table.DataTable(
+        id="sim-sku-table",
+        data=sku_list,
+        columns=[
+            {"name": "SKU", "id": "SKU"},
+            {"name": "Manufacturer", "id": "Manufacturer"},
+            {"name": "Brand", "id": "Brand"},
+            {"name": "Segment", "id": "Segment"},
+            {"name": "Price (\u00a3)", "id": "Current Price", "type": "numeric"},
+            {"name": "Elasticity", "id": "Elasticity", "type": "numeric"},
+        ],
+        row_selectable="single",
+        selected_rows=[0],
+        sort_action="native",
+        filter_action="native",
+        style_table={"overflowX": "auto", "maxHeight": "300px", "overflowY": "auto"},
+        style_cell={"textAlign": "center", "padding": "6px", "fontSize": "0.85rem"},
+        style_header={"backgroundColor": "#2c3e50", "color": "white", "fontWeight": "bold"},
+        style_data_conditional=[{
+            "if": {"state": "selected"},
+            "backgroundColor": "#d4edda", "border": "1px solid #28a745",
+        }],
+        page_size=50,
+    )
+
+    return html.Div([
+        html.H3("Scenario Simulator", className="mb-1"),
+        html.P("Click a SKU, drag the price slider, and see live portfolio impact.",
+               className="text-muted mb-3"),
+        html.Hr(),
+        # SKU selector table
+        html.H5("Select a SKU", className="mb-2"),
+        sku_table,
+        html.Hr(),
+        # Selected SKU controls
+        html.Div(id="sim-controls", className="mb-4"),
+        # Results
+        html.Div(id="sim-results"),
+    ])
+
+
+@callback(
+    Output("sim-controls", "children"),
+    Input("sim-sku-table", "selected_rows"),
+    Input("sim-sku-table", "data"),
+    State("sim-price-changes", "data"),
+)
+def update_sim_controls(selected_rows, table_data, price_changes):
+    if not selected_rows or not table_data:
+        return html.Div("Select a SKU from the table above.", className="text-muted")
+
+    row = table_data[selected_rows[0]]
+    sku_id = row["sku_id"]
+    current_val = price_changes.get(sku_id, 0)
+
+    # Count how many SKUs have been adjusted
+    adjusted = {k: v for k, v in price_changes.items() if v != 0}
+    adjusted_badge = ""
+    if adjusted:
+        adjusted_badge = dbc.Badge(
+            f"{len(adjusted)} SKU{'s' if len(adjusted) > 1 else ''} adjusted",
+            color="info", className="ms-2",
+        )
+
+    return html.Div([
+        dbc.Row([
+            dbc.Col([
+                html.H5([
+                    f"Adjust Price: {row['SKU']}",
+                    adjusted_badge,
+                ], className="mb-1"),
+                html.P(
+                    f"{row['Manufacturer']} \u00b7 {row['Brand']} \u00b7 Current: \u00a3{row['Current Price']:.2f}",
+                    className="text-muted mb-2",
+                ),
+            ]),
+            dbc.Col(
+                dbc.Button("Reset All", id="sim-reset-btn", color="outline-secondary", size="sm"),
+                width="auto", className="d-flex align-items-center",
+            ),
+        ], justify="between"),
+        dcc.Slider(
+            id="sim-price-slider",
+            min=-20, max=20, step=1,
+            value=current_val,
+            marks={i: f"{i:+d}%" for i in range(-20, 25, 5)},
+            tooltip={"placement": "bottom", "always_visible": True},
+        ),
+        html.Div(id="sim-selected-sku-id", children=sku_id, style={"display": "none"}),
+    ])
+
+
+@callback(
+    Output("sim-price-changes", "data"),
+    Input("sim-price-slider", "value"),
+    Input("sim-reset-btn", "n_clicks"),
+    State("sim-selected-sku-id", "children"),
+    State("sim-price-changes", "data"),
+    prevent_initial_call=True,
+)
+def update_price_changes(slider_val, reset_clicks, sku_id, price_changes):
+    from dash import ctx
+    if ctx.triggered_id == "sim-reset-btn":
+        return {}
+    if sku_id and slider_val is not None:
+        price_changes[sku_id] = slider_val
+    return price_changes
+
+
+@callback(
+    Output("sim-results", "children"),
+    Input("sim-price-changes", "data"),
+    Input("data-store", "data"),
+)
+def update_sim_results(price_changes, json_data):
+    df = pd.read_json(io.StringIO(json_data), orient="split")
+    sim_df = simulate_portfolio(df, price_changes)
+
+    total_baseline = sim_df["baseline_profit"].sum()
+    total_new = sim_df["new_profit"].sum()
+    total_impact = sim_df["profit_impact"].sum()
+    total_impact_pct = (total_impact / total_baseline * 100) if total_baseline else 0
+
+    adjusted_count = sum(1 for v in price_changes.values() if v != 0)
+    impact_color = "#155724" if total_impact >= 0 else "#721c24"
+
+    summary = dbc.Row([
+        dbc.Col(dbc.Card(dbc.CardBody([
+            html.P("SKUs Adjusted", className="text-muted mb-1", style={"fontSize": "0.85rem"}),
+            html.H4(str(adjusted_count), className="mb-0"),
+        ]), className="text-center"), width=True),
+        dbc.Col(dbc.Card(dbc.CardBody([
+            html.P("Baseline Portfolio Profit", className="text-muted mb-1", style={"fontSize": "0.85rem"}),
+            html.H4(f"\u00a3{total_baseline:,.0f}", className="mb-0"),
+        ]), className="text-center"), width=True),
+        dbc.Col(dbc.Card(dbc.CardBody([
+            html.P("Simulated Portfolio Profit", className="text-muted mb-1", style={"fontSize": "0.85rem"}),
+            html.H4(f"\u00a3{total_new:,.0f}", className="mb-0"),
+        ]), className="text-center"), width=True),
+        dbc.Col(dbc.Card(dbc.CardBody([
+            html.P("Total Profit Impact", className="text-muted mb-1", style={"fontSize": "0.85rem"}),
+            html.H4(f"\u00a3{total_impact:+,.0f}", className="mb-0", style={"color": impact_color}),
+            html.Small(f"{total_impact_pct:+.1f}%", className="text-muted"),
+        ]), className="text-center"), width=True),
+    ], className="mb-4")
+
+    # Per-SKU impact chart — only show SKUs that were adjusted or have non-zero impact
+    changed_skus = sim_df[sim_df["price_change_pct"] != 0].sort_values("profit_impact", ascending=True)
+
+    if not changed_skus.empty:
+        fig_impact = go.Figure(go.Bar(
+            x=changed_skus["profit_impact"],
+            y=changed_skus["sku_name"],
+            orientation="h",
+            marker_color=["#2ecc71" if v >= 0 else "#e74c3c" for v in changed_skus["profit_impact"]],
+            text=[f"\u00a3{v:+,.0f}" for v in changed_skus["profit_impact"]],
+            textposition="outside",
+        ))
+        fig_impact.update_layout(
+            title="Profit Impact of Adjusted SKUs",
+            xaxis_title="Profit Impact (\u00a3)",
+            plot_bgcolor="white",
+            xaxis=dict(gridcolor="#eeeeee"),
+            height=max(250, len(changed_skus) * 35),
+            margin=dict(t=40, l=220),
+        )
+        fig_impact.add_vline(x=0, line_dash="dash", line_color="gray")
+        impact_chart = dcc.Graph(figure=fig_impact)
+    else:
+        impact_chart = html.P("Adjust a SKU price above to see the impact.",
+                              className="text-muted text-center my-4")
+
+    # Results table — show all SKUs with adjusted ones highlighted
+    result_data = []
+    for _, row in sim_df.iterrows():
+        result_data.append({
+            "SKU": row["sku_name"],
+            "Manufacturer": row["manufacturer"],
+            "Current Price": round(row["current_price"], 2),
+            "Change": f"{row['price_change_pct']:+.0f}%",
+            "New Price": round(row["new_price"], 2),
+            "Volume Change": f"{row['volume_change_pct']:+.1f}%",
+            "Profit Impact": round(row["profit_impact"], 0),
+            "_changed": 1 if row["price_change_pct"] != 0 else 0,
+        })
+
+    result_table = dash_table.DataTable(
+        data=result_data,
+        columns=[
+            {"name": "SKU", "id": "SKU"},
+            {"name": "Manufacturer", "id": "Manufacturer"},
+            {"name": "Current Price (\u00a3)", "id": "Current Price", "type": "numeric"},
+            {"name": "Change", "id": "Change"},
+            {"name": "New Price (\u00a3)", "id": "New Price", "type": "numeric"},
+            {"name": "Volume Change", "id": "Volume Change"},
+            {"name": "Profit Impact (\u00a3)", "id": "Profit Impact", "type": "numeric"},
+        ],
+        sort_action="native",
+        style_table={"overflowX": "auto"},
+        style_cell={"textAlign": "center", "padding": "6px", "fontSize": "0.85rem"},
+        style_header={"backgroundColor": "#2c3e50", "color": "white", "fontWeight": "bold"},
+        style_data_conditional=[
+            {
+                "if": {"filter_query": "{_changed} = 1"},
+                "backgroundColor": "#fff3cd", "fontWeight": "bold",
+            },
+            {
+                "if": {"filter_query": "{Profit Impact} > 0", "column_id": "Profit Impact"},
+                "color": "#155724",
+            },
+            {
+                "if": {"filter_query": "{Profit Impact} < 0", "column_id": "Profit Impact"},
+                "color": "#721c24",
+            },
+        ],
+        page_size=50,
+    )
+
+    # Manufacturer-level impact
+    mfr_impact = sim_df.groupby("manufacturer")["profit_impact"].sum().reset_index()
+    mfr_impact = mfr_impact.sort_values("profit_impact", ascending=True)
+    fig_mfr = go.Figure(go.Bar(
+        x=mfr_impact["profit_impact"],
+        y=mfr_impact["manufacturer"],
+        orientation="h",
+        marker_color=["#2ecc71" if v >= 0 else "#e74c3c" for v in mfr_impact["profit_impact"]],
+        text=[f"\u00a3{v:+,.0f}" for v in mfr_impact["profit_impact"]],
+        textposition="outside",
+    ))
+    fig_mfr.update_layout(
+        title="Simulated Profit Impact by Manufacturer",
+        xaxis_title="Profit Impact (\u00a3)",
+        plot_bgcolor="white",
+        xaxis=dict(gridcolor="#eeeeee"),
+        height=250,
+        margin=dict(t=40, l=150),
+    )
+    fig_mfr.add_vline(x=0, line_dash="dash", line_color="gray")
+
+    return html.Div([
+        html.H5("Portfolio Impact", className="mb-3"),
+        summary,
+        dbc.Row([
+            dbc.Col(impact_chart, width=7),
+            dbc.Col(dcc.Graph(figure=fig_mfr), width=5),
+        ], className="mb-4"),
+        html.Hr(),
+        html.H5("All SKUs — Simulated Results", className="mb-3"),
+        result_table,
     ])
 
 
