@@ -25,6 +25,14 @@ REQUIRED_COLS = [
 # ── Default data ─────────────────────────────────────────────────────────────
 default_df = load_data()
 
+# ── Manufacturer logo mapping ────────────────────────────────────────────────
+LOGO_MAP = {
+    "AB InBev": "/assets/logos/ab_inbev.png",
+    "Heineken": "/assets/logos/heineken.png",
+    "Carlsberg": "/assets/logos/carlsberg.png",
+    "Molson Coors": "/assets/logos/molson_coors.png",
+}
+
 app = Dash(
     __name__,
     external_stylesheets=[dbc.themes.FLATLY],
@@ -89,7 +97,9 @@ def parse_upload(contents, filename):
 # ── Layout ───────────────────────────────────────────────────────────────────
 sidebar = html.Div(
     [
-        html.H4("Price Recommender", className="mb-3"),
+        html.H4("Price Recommender", className="mb-1",
+                style={"fontWeight": "bold", "color": "#2c3e50"}),
+        html.Small("Beer SKU Portfolio Optimizer", className="text-muted d-block mb-3"),
         html.Hr(),
         # File upload
         dbc.Label("Upload Portfolio"),
@@ -105,17 +115,23 @@ sidebar = html.Div(
         ),
         html.Div(id="upload-status", className="mb-2"),
         html.Hr(),
-        # View selector
-        dbc.Label("View"),
-        dbc.Select(
-            id="view-select",
-            options=[
-                {"label": "All Manufacturers", "value": "overview"},
-                {"label": "Scenario Simulator", "value": "simulator"},
-                {"label": "SKU Detail", "value": "detail"},
-            ],
-            value="overview",
-        ),
+        # View navigation buttons
+        dbc.Label("Navigate"),
+        html.Div([
+            dbc.Button(
+                "Overview", id="btn-overview",
+                color="primary", className="w-100 mb-2", size="sm",
+            ),
+            dbc.Button(
+                "Simulator", id="btn-simulator",
+                color="outline-primary", className="w-100 mb-2", size="sm",
+            ),
+            dbc.Button(
+                "SKU Detail", id="btn-detail",
+                color="outline-primary", className="w-100 mb-2", size="sm",
+            ),
+        ]),
+        dcc.Store(id="view-select", data="overview"),
         html.Div(
             id="sku-filters",
             children=[
@@ -190,10 +206,38 @@ def update_manufacturer_options(json_data):
     return options, manufacturers[0]
 
 
+# ── Navigation button callback ───────────────────────────────────────────────
+@callback(
+    Output("view-select", "data"),
+    Output("btn-overview", "color"),
+    Output("btn-simulator", "color"),
+    Output("btn-detail", "color"),
+    Input("btn-overview", "n_clicks"),
+    Input("btn-simulator", "n_clicks"),
+    Input("btn-detail", "n_clicks"),
+    prevent_initial_call=True,
+)
+def handle_nav_click(n1, n2, n3):
+    from dash import ctx
+    button_map = {
+        "btn-overview": "overview",
+        "btn-simulator": "simulator",
+        "btn-detail": "detail",
+    }
+    view = button_map.get(ctx.triggered_id, "overview")
+    colors = {
+        "overview": ("primary", "outline-primary", "outline-primary"),
+        "simulator": ("outline-primary", "primary", "outline-primary"),
+        "detail": ("outline-primary", "outline-primary", "primary"),
+    }
+    c = colors[view]
+    return view, c[0], c[1], c[2]
+
+
 # ── Show/hide SKU filters based on view ──────────────────────────────────────
 @callback(
     Output("sku-filters", "style"),
-    Input("view-select", "value"),
+    Input("view-select", "data"),
 )
 def toggle_filters(view):
     if view in ("overview", "simulator"):
@@ -204,7 +248,7 @@ def toggle_filters(view):
 # ── Route to correct view ───────────────────────────────────────────────────
 @callback(
     Output("main-content", "children"),
-    Input("view-select", "value"),
+    Input("view-select", "data"),
     Input("sku-select", "value"),
     Input("data-store", "data"),
 )
@@ -459,10 +503,20 @@ def build_overview_layout(df):
     )
     fig_waterfall.add_vline(x=0, line_dash="dash", line_color="gray")
 
+    # Manufacturer logo banner
+    logo_banner = dbc.Row([
+        dbc.Col(
+            html.Img(src=LOGO_MAP.get(m, ""), style={"height": "40px", "objectFit": "contain"}),
+            width="auto", className="d-flex align-items-center",
+        )
+        for m in manufacturers if m in LOGO_MAP
+    ], className="mb-3 g-4", justify="center")
+
     return html.Div([
         html.H3("Portfolio Price Recommendations", className="mb-1"),
         html.P(f"Analysing {total_skus} SKUs across {len(manufacturers)} manufacturers",
-               className="text-muted mb-3"),
+               className="text-muted mb-2"),
+        logo_banner,
         html.Hr(),
         summary_cards,
         html.Hr(),
@@ -883,9 +937,21 @@ def build_detail_layout(sku_id, df):
         style_header={"backgroundColor": "#2c3e50", "color": "white", "fontWeight": "bold"},
     )
 
+    # Manufacturer logo for detail view
+    mfr_logo = LOGO_MAP.get(sku_row["manufacturer"], "")
+    detail_header = dbc.Row([
+        dbc.Col(
+            html.Img(src=mfr_logo, style={"height": "45px", "objectFit": "contain"}) if mfr_logo else html.Span(),
+            width="auto", className="d-flex align-items-center me-3",
+        ),
+        dbc.Col([
+            html.H3(sku_row["sku_name"], className="mb-0"),
+            html.P(subtitle, className="text-muted mb-0"),
+        ]),
+    ], align="center", className="mb-3")
+
     return html.Div([
-        html.H3("Beer SKU Price Recommender", className="mb-1"),
-        html.P(subtitle, className="text-muted mb-3"),
+        detail_header,
         html.Hr(),
         kpi_cards,
         html.Hr(),
