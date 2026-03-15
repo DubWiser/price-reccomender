@@ -7,36 +7,20 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
-from plotly.subplots import make_subplots
 from dash import Dash, html, dcc, dash_table, Input, Output, State, callback, no_update
 import dash_bootstrap_components as dbc
 
 from pricing_engine import load_data, analyse_sku, run_scenarios, recommend, baseline_profit, simulate_portfolio
-
-# ── AB InBev Design System palette ────────────────────────────────────────────
-MIDNIGHT = "#1A1A1A"
-CHARCOAL = "#2C2C2C"
-CREAM = "#F5F0E8"
-GOLD = "#C9A84C"
-GOLD_LIGHT = "#E8C97A"
-WARM_GRAY = "#8A8070"
-ABI_NAVY = "#1A3A5C"
-ALERT_RED = "#C0392B"
-FOREST_GREEN = "#4A7C59"
-BORDER = "#3A3530"
-BODY_TEXT = "#C2BDB5"
-HEADING_TEXT = "#F5F0E8"
-
-# Legacy aliases used in layout code
-NAVY = ABI_NAVY
-GREEN = FOREST_GREEN
-AMBER = WARM_GRAY
-WHITE = CREAM
-CHART_GREEN = GOLD          # positive = Gold per design system
-CHART_RED = ALERT_RED
-CHART_AMBER = ABI_NAVY      # hold/neutral = Navy per design system
-CHART_BLUE = ABI_NAVY
+from theme import (
+    MIDNIGHT, CHARCOAL, GOLD, WARM_GRAY, ABI_NAVY,
+    ALERT_RED, FOREST_GREEN, BORDER, BODY_TEXT, HEADING_TEXT,
+    NAVY, CHART_GREEN, CHART_RED,
+    CHART_LAYOUT, CHART_LAYOUT_NO_YAXIS, CHART_LAYOUT_NO_AXES,
+    NAV_BTN_ACTIVE, NAV_BTN_INACTIVE,
+    TABLE_STYLE_CELL, TABLE_STYLE_HEADER,
+    LOGO_MAP, make_kpi_card, section_title,
+)
+from pages import build_elasticity_layout, build_cannibalization_layout, build_executive_summary_layout
 
 # ── Required columns for uploaded files ──────────────────────────────────────
 REQUIRED_COLS = [
@@ -49,34 +33,6 @@ REQUIRED_COLS = [
 # ── Default data ─────────────────────────────────────────────────────────────
 default_df = load_data()
 
-# ── Manufacturer logo mapping ────────────────────────────────────────────────
-LOGO_MAP = {
-    "AB InBev": "/assets/logos/ab_inbev.png",
-    "Heineken": "/assets/logos/heineken.png",
-    "Carlsberg": "/assets/logos/carlsberg.png",
-    "Molson Coors": "/assets/logos/molson_coors.png",
-}
-
-# ── Chart layout defaults ────────────────────────────────────────────────────
-CHART_LAYOUT = dict(
-    plot_bgcolor=CHARCOAL,
-    paper_bgcolor=CHARCOAL,
-    font=dict(family="Inter, sans-serif", color=BODY_TEXT, size=13),
-    xaxis=dict(
-        gridcolor=BORDER, gridwidth=0.5, griddash="dash",
-        linecolor=BORDER, linewidth=0.5,
-        tickfont=dict(size=11, color=WARM_GRAY),
-        title_font=dict(size=11, color=WARM_GRAY),
-    ),
-    yaxis=dict(
-        gridcolor=BORDER, gridwidth=0.5, griddash="dash",
-        showline=False,
-        tickfont=dict(size=11, color=WARM_GRAY),
-        title_font=dict(size=11, color=WARM_GRAY),
-    ),
-    title_font=dict(size=15, color=HEADING_TEXT, family="Inter, sans-serif"),
-    legend_font=dict(color=BODY_TEXT, size=11),
-)
 
 app = Dash(
     __name__,
@@ -87,6 +43,16 @@ app = Dash(
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+# Navigation button definitions: (id, label, view_key)
+NAV_BUTTONS = [
+    ("btn-simulator", "Simulator", "simulator"),
+    ("btn-detail", "SKU Detail", "detail"),
+    ("btn-elasticity", "Elasticity", "elasticity"),
+    ("btn-cannibalization", "Cannibalization", "cannibalization"),
+    ("btn-executive", "Executive Summary", "executive"),
+]
+
 
 def build_overview_data(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
@@ -158,28 +124,14 @@ def parse_upload(contents, filename):
     return uploaded_df, (f"Dropped {dropped} rows with missing data. " if dropped > 0 else None)
 
 
-def make_kpi_card(label, value, value_color=None):
-    style = {}
-    if value_color:
-        style["color"] = value_color
-    return dbc.Col(dbc.Card(dbc.CardBody([
-        html.P(label, className="kpi-label mb-1"),
-        html.Div(value, className="kpi-value mb-0", style=style),
-    ]), className="kpi-card text-center"), width=True)
-
-
-def section_title(text):
-    return html.H5(text, className="section-title mb-3")
-
-
 # ── Layout ───────────────────────────────────────────────────────────────────
 sidebar = html.Div(
     id="sidebar",
     children=[
-        html.H4("Price Recommender", className="mb-0"),
-        html.Small("Beer SKU Portfolio Optimizer", className="d-block mb-3",
-                   style={"color": WARM_GRAY, "fontSize": "11px", "letterSpacing": "0.1em",
-                          "textTransform": "uppercase"}),
+        html.Img(
+            src="/assets/logos/pricepint_logo_v2.svg",
+            style={"width": "100%", "display": "block", "marginBottom": "8px"},
+        ),
         html.Hr(),
         dbc.Label("Data Source"),
         dcc.Upload(
@@ -191,14 +143,21 @@ sidebar = html.Div(
         html.Hr(),
         dbc.Label("Navigate"),
         html.Div([
-            dbc.Button("Overview", id="btn-overview",
-                       className="nav-btn-active w-100 mb-2", size="sm"),
             dbc.Button("Simulator", id="btn-simulator",
-                       className="nav-btn-inactive w-100 mb-2", size="sm"),
+                       className=NAV_BTN_ACTIVE, size="sm"),
             dbc.Button("SKU Detail", id="btn-detail",
-                       className="nav-btn-inactive w-100 mb-2", size="sm"),
+                       className=NAV_BTN_INACTIVE, size="sm"),
         ]),
-        dcc.Store(id="view-select", data="overview"),
+        dbc.Label("Analytics", className="mt-2"),
+        html.Div([
+            dbc.Button("Elasticity", id="btn-elasticity",
+                       className=NAV_BTN_INACTIVE, size="sm"),
+            dbc.Button("Cannibalization", id="btn-cannibalization",
+                       className=NAV_BTN_INACTIVE, size="sm"),
+            dbc.Button("Executive Summary", id="btn-executive",
+                       className=NAV_BTN_INACTIVE, size="sm"),
+        ]),
+        dcc.Store(id="view-select", data="simulator"),
         html.Div(
             id="sku-filters",
             children=[
@@ -274,25 +233,18 @@ def update_manufacturer_options(json_data):
 # ── Navigation ───────────────────────────────────────────────────────────────
 @callback(
     Output("view-select", "data"),
-    Output("btn-overview", "className"),
-    Output("btn-simulator", "className"),
-    Output("btn-detail", "className"),
-    Input("btn-overview", "n_clicks"),
-    Input("btn-simulator", "n_clicks"),
-    Input("btn-detail", "n_clicks"),
+    *[Output(btn_id, "className") for btn_id, _, _ in NAV_BUTTONS],
+    *[Input(btn_id, "n_clicks") for btn_id, _, _ in NAV_BUTTONS],
     prevent_initial_call=True,
 )
-def handle_nav_click(n1, n2, n3):
+def handle_nav_click(*args):
     from dash import ctx
-    button_map = {"btn-overview": "overview", "btn-simulator": "simulator", "btn-detail": "detail"}
-    view = button_map.get(ctx.triggered_id, "overview")
-    classes = {
-        "overview": ("nav-btn-active w-100 mb-2", "nav-btn-inactive w-100 mb-2", "nav-btn-inactive w-100 mb-2"),
-        "simulator": ("nav-btn-inactive w-100 mb-2", "nav-btn-active w-100 mb-2", "nav-btn-inactive w-100 mb-2"),
-        "detail": ("nav-btn-inactive w-100 mb-2", "nav-btn-inactive w-100 mb-2", "nav-btn-active w-100 mb-2"),
-    }
-    c = classes[view]
-    return view, c[0], c[1], c[2]
+    button_map = {btn_id: view for btn_id, _, view in NAV_BUTTONS}
+    view = button_map.get(ctx.triggered_id, "simulator")
+    classes = []
+    for _, _, v in NAV_BUTTONS:
+        classes.append(NAV_BTN_ACTIVE if v == view else NAV_BTN_INACTIVE)
+    return (view, *classes)
 
 
 @callback(
@@ -300,7 +252,8 @@ def handle_nav_click(n1, n2, n3):
     Input("view-select", "data"),
 )
 def toggle_filters(view):
-    return {"display": "none"} if view in ("overview", "simulator") else {"display": "block"}
+    # Only show SKU filters for detail view
+    return {"display": "block"} if view == "detail" else {"display": "none"}
 
 
 @callback(
@@ -313,10 +266,14 @@ def render_view(view, sku_id, json_data):
     if not json_data:
         return html.Div("Loading...", className="text-muted mt-4")
     df = pd.read_json(io.StringIO(json_data), orient="split")
-    if view == "overview":
-        return build_overview_layout(df)
     if view == "simulator":
         return build_simulator_layout(df)
+    if view == "elasticity":
+        return build_elasticity_layout(df)
+    if view == "cannibalization":
+        return build_cannibalization_layout(df)
+    if view == "executive":
+        return build_executive_summary_layout(df)
     return build_detail_layout(sku_id, df)
 
 
@@ -346,222 +303,6 @@ def export_csv(n_clicks, json_data):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# OVERVIEW VIEW
-# ══════════════════════════════════════════════════════════════════════════════
-
-def build_overview_layout(df):
-    if df.empty:
-        return html.Div("No data loaded. Upload a CSV or Excel file.", className="text-muted mt-4")
-
-    overview_df = build_overview_data(df)
-    if overview_df.empty:
-        return html.Div("Could not analyse any SKUs. Check your data.", className="text-muted mt-4")
-
-    manufacturers = sorted(overview_df["manufacturer"].unique())
-    total_skus = len(overview_df)
-    increase_count = int((overview_df["action"] == "Increase Price").sum())
-    decrease_count = int((overview_df["action"] == "Decrease Price").sum())
-    hold_count = int((overview_df["action"] == "Hold Price").sum())
-    total_profit_impact = overview_df["profit_impact"].sum()
-
-    summary_cards = dbc.Row([
-        make_kpi_card("Total SKUs", str(total_skus)),
-        make_kpi_card("Increase", str(increase_count), CHART_GREEN),
-        make_kpi_card("Decrease", str(decrease_count), CHART_RED),
-        make_kpi_card("Hold", str(hold_count), CHART_AMBER),
-        make_kpi_card("Portfolio Impact",
-                      f"\u00a3{total_profit_impact:+,.0f}",
-                      CHART_GREEN if total_profit_impact >= 0 else CHART_RED),
-    ], className="mb-4")
-
-    # Verdict table with red/amber/green
-    verdict_data = []
-    for _, row in overview_df.iterrows():
-        verdict_data.append({
-            "SKU": row["sku_name"],
-            "Manufacturer": row["manufacturer"],
-            "Brand": row["brand"],
-            "Segment": row["segment"],
-            "Current Price": round(row["current_price"], 2),
-            "Verdict": row["action"].replace(" Price", ""),
-            "New Price": round(row["recommended_price"], 2),
-            "Price Change": f"{row['scenario_pct']:+.0f}%",
-            "Revenue Impact": round(row["profit_impact"], 0),
-            "Impact %": round(row["profit_impact_pct"], 1),
-        })
-
-    verdict_table = dash_table.DataTable(
-        id="verdict-table",
-        data=verdict_data,
-        columns=[
-            {"name": "SKU", "id": "SKU"},
-            {"name": "Manufacturer", "id": "Manufacturer"},
-            {"name": "Brand", "id": "Brand"},
-            {"name": "Segment", "id": "Segment"},
-            {"name": "Current Price (\u00a3)", "id": "Current Price", "type": "numeric"},
-            {"name": "Verdict", "id": "Verdict"},
-            {"name": "New Price (\u00a3)", "id": "New Price", "type": "numeric"},
-            {"name": "Price Change", "id": "Price Change"},
-            {"name": "Revenue Impact (\u00a3)", "id": "Revenue Impact", "type": "numeric"},
-            {"name": "Impact %", "id": "Impact %", "type": "numeric"},
-        ],
-        sort_action="native",
-        sort_mode="multi",
-        filter_action="native",
-        style_table={"overflowX": "auto"},
-        style_cell={"textAlign": "center", "padding": "8px", "fontSize": "13px",
-                         "backgroundColor": CHARCOAL, "color": BODY_TEXT,
-                         "border": "none", "borderBottom": f"0.5px solid {BORDER}"},
-        style_header={"backgroundColor": CHARCOAL, "color": WARM_GRAY, "fontWeight": "500",
-                       "borderBottom": f"1px solid {GOLD}", "textTransform": "uppercase",
-                       "fontSize": "11px", "letterSpacing": "0.08em"},
-        style_data_conditional=[
-            {"if": {"filter_query": '{Verdict} = "Increase"', "column_id": "Verdict"},
-             "backgroundColor": "rgba(201,168,76,0.15)", "color": GOLD, "fontWeight": "500"},
-            {"if": {"filter_query": '{Verdict} = "Decrease"', "column_id": "Verdict"},
-             "backgroundColor": "rgba(192,57,43,0.15)", "color": ALERT_RED, "fontWeight": "500"},
-            {"if": {"filter_query": '{Verdict} = "Hold"', "column_id": "Verdict"},
-             "backgroundColor": "rgba(26,58,92,0.15)", "color": ABI_NAVY, "fontWeight": "500"},
-        ],
-        page_size=50,
-    )
-
-    # Charts with AB InBev palette
-    mfr_impact = overview_df.groupby("manufacturer")["profit_impact"].sum().reset_index()
-    mfr_impact = mfr_impact.sort_values("profit_impact", ascending=True)
-    fig_mfr = go.Figure(go.Bar(
-        x=mfr_impact["profit_impact"], y=mfr_impact["manufacturer"], orientation="h",
-        marker_color=[CHART_GREEN if v >= 0 else CHART_RED for v in mfr_impact["profit_impact"]],
-        text=[f"\u00a3{v:+,.0f}" for v in mfr_impact["profit_impact"]], textposition="outside",
-    ))
-    fig_mfr.update_layout(**CHART_LAYOUT, title="Profit Impact by Manufacturer",
-                          height=300, margin=dict(t=40, l=150))
-    fig_mfr.add_vline(x=0, line_dash="dash", line_color=BORDER)
-
-    action_color_map = {"Increase Price": GOLD, "Decrease Price": ALERT_RED, "Hold Price": ABI_NAVY}
-    action_counts = overview_df.groupby(["manufacturer", "action"]).size().reset_index(name="count")
-    fig_actions = go.Figure()
-    for action in ["Decrease Price", "Hold Price", "Increase Price"]:
-        subset = action_counts[action_counts["action"] == action]
-        fig_actions.add_trace(go.Bar(
-            x=subset["manufacturer"], y=subset["count"],
-            name=action, marker_color=action_color_map[action],
-        ))
-    fig_actions.update_layout(**CHART_LAYOUT, barmode="stack", title="Action Distribution",
-                              yaxis_title="SKUs", height=300, margin=dict(t=40),
-                              legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-
-    # Market share charts
-    mfr_order = sorted(overview_df["manufacturer"].unique())
-    mfr_colors = dict(zip(mfr_order, [GOLD, ABI_NAVY, WARM_GRAY, FOREST_GREEN, GOLD_LIGHT]))
-    pie_colors = [mfr_colors.get(m, WARM_GRAY) for m in mfr_order]
-
-    mfr_vol_current = overview_df.groupby("manufacturer")["volume"].sum()
-    mfr_vol_projected = overview_df.groupby("manufacturer")["projected_volume"].sum()
-    mfr_rev_current = overview_df.groupby("manufacturer")["revenue"].sum()
-    mfr_rev_projected = overview_df.groupby("manufacturer")["projected_revenue"].sum()
-
-    total_vol_current = mfr_vol_current.sum()
-    total_vol_projected = mfr_vol_projected.sum()
-    vol_share_current = (mfr_vol_current / total_vol_current * 100).round(1)
-    vol_share_projected = (mfr_vol_projected / total_vol_projected * 100).round(1)
-    vol_share_delta = (vol_share_projected - vol_share_current).round(2)
-
-    total_rev_current = mfr_rev_current.sum()
-    total_rev_projected = mfr_rev_projected.sum()
-    rev_share_current = (mfr_rev_current / total_rev_current * 100).round(1)
-    rev_share_projected = (mfr_rev_projected / total_rev_projected * 100).round(1)
-    rev_share_delta = (rev_share_projected - rev_share_current).round(2)
-
-    fig_vol_share = make_subplots(rows=1, cols=2, specs=[[{"type": "pie"}, {"type": "pie"}]],
-                                   subplot_titles=["Current Volume Share", "Projected Volume Share"])
-    fig_vol_share.add_trace(go.Pie(labels=mfr_order, values=[mfr_vol_current[m] for m in mfr_order],
-                                    hole=0.45, marker_colors=pie_colors, textinfo="label+percent",
-                                    textposition="outside"), row=1, col=1)
-    fig_vol_share.add_trace(go.Pie(labels=mfr_order, values=[mfr_vol_projected[m] for m in mfr_order],
-                                    hole=0.45, marker_colors=pie_colors, textinfo="label+percent",
-                                    textposition="outside"), row=1, col=2)
-    fig_vol_share.update_layout(**CHART_LAYOUT, title="Volume Market Share", height=380,
-                                 margin=dict(t=60, b=20), showlegend=False)
-
-    fig_rev_share = make_subplots(rows=1, cols=2, specs=[[{"type": "pie"}, {"type": "pie"}]],
-                                   subplot_titles=["Current Revenue Share", "Projected Revenue Share"])
-    fig_rev_share.add_trace(go.Pie(labels=mfr_order, values=[mfr_rev_current[m] for m in mfr_order],
-                                    hole=0.45, marker_colors=pie_colors, textinfo="label+percent",
-                                    textposition="outside"), row=1, col=1)
-    fig_rev_share.add_trace(go.Pie(labels=mfr_order, values=[mfr_rev_projected[m] for m in mfr_order],
-                                    hole=0.45, marker_colors=pie_colors, textinfo="label+percent",
-                                    textposition="outside"), row=1, col=2)
-    fig_rev_share.update_layout(**CHART_LAYOUT, title="Revenue Market Share", height=380,
-                                 margin=dict(t=60, b=20), showlegend=False)
-
-    fig_share_shift = go.Figure()
-    fig_share_shift.add_trace(go.Bar(x=mfr_order, y=[vol_share_delta[m] for m in mfr_order],
-                                      name="Volume Share \u0394", marker_color=ABI_NAVY,
-                                      text=[f"{vol_share_delta[m]:+.2f}pp" for m in mfr_order],
-                                      textposition="outside"))
-    fig_share_shift.add_trace(go.Bar(x=mfr_order, y=[rev_share_delta[m] for m in mfr_order],
-                                      name="Revenue Share \u0394", marker_color=GOLD,
-                                      text=[f"{rev_share_delta[m]:+.2f}pp" for m in mfr_order],
-                                      textposition="outside"))
-    fig_share_shift.update_layout(**CHART_LAYOUT, title="Market Share Shift (pp)",
-                                   yaxis_title="Change (pp)", barmode="group", height=350, margin=dict(t=40),
-                                   legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-    fig_share_shift.add_hline(y=0, line_dash="dash", line_color=BORDER)
-
-    sku_sorted = overview_df.sort_values("profit_impact", ascending=True)
-    fig_waterfall = go.Figure(go.Bar(
-        x=sku_sorted["profit_impact"], y=sku_sorted["sku_name"], orientation="h",
-        marker_color=[GOLD if a == "Increase Price" else ALERT_RED if a == "Decrease Price" else ABI_NAVY
-                      for a in sku_sorted["action"]],
-        text=[f"\u00a3{v:+,.0f}" for v in sku_sorted["profit_impact"]], textposition="outside",
-    ))
-    fig_waterfall.update_layout(**CHART_LAYOUT, title="Profit Impact by SKU",
-                                 height=max(400, len(sku_sorted) * 28), margin=dict(t=40, l=220))
-    fig_waterfall.add_vline(x=0, line_dash="dash", line_color=BORDER)
-
-    # Logo banner
-    logo_banner = dbc.Row([
-        dbc.Col(
-            html.Img(src=LOGO_MAP.get(m, ""), style={"height": "36px", "objectFit": "contain"}),
-            width="auto", className="d-flex align-items-center",
-        )
-        for m in manufacturers if m in LOGO_MAP
-    ], className="logo-banner mb-3 g-4", justify="center")
-
-    return html.Div([
-        html.H3("Portfolio Price Recommendations", className="page-title mb-1"),
-        html.P(f"Analysing {total_skus} SKUs across {len(manufacturers)} manufacturers",
-               className="page-subtitle mb-2"),
-        logo_banner,
-        html.Hr(),
-        summary_cards,
-        html.Hr(),
-        dbc.Row([
-            dbc.Col(section_title("Verdict Table")),
-            dbc.Col(
-                dbc.Button("Export CSV", id="btn-export-csv", className="export-btn", size="sm"),
-                width="auto",
-            ),
-        ], justify="between", align="center", className="mb-2"),
-        verdict_table,
-        html.Hr(className="mt-4"),
-        dbc.Row([
-            dbc.Col(dcc.Graph(figure=fig_mfr), width=6),
-            dbc.Col(dcc.Graph(figure=fig_actions), width=6),
-        ], className="mb-4"),
-        html.Hr(),
-        section_title("Market Share: Before vs After"),
-        dcc.Graph(figure=fig_vol_share),
-        dcc.Graph(figure=fig_rev_share, className="mt-2"),
-        dcc.Graph(figure=fig_share_shift, className="mt-2 mb-4"),
-        html.Hr(),
-        section_title("Profit Impact by SKU"),
-        dcc.Graph(figure=fig_waterfall),
-    ])
-
-
-# ══════════════════════════════════════════════════════════════════════════════
 # SCENARIO SIMULATOR VIEW
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -570,7 +311,7 @@ def build_simulator_layout(df):
         return html.Div("No data loaded.", className="text-muted mt-4")
 
     sku_list = []
-    for _, row in df.iterrows():
+    for _, row in df[df["manufacturer"] == "AB InBev"].iterrows():
         sku_list.append({
             "sku_id": row["sku_id"],
             "SKU": row["sku_name"],
@@ -597,12 +338,8 @@ def build_simulator_layout(df):
         sort_action="native",
         filter_action="native",
         style_table={"overflowX": "auto", "maxHeight": "300px", "overflowY": "auto"},
-        style_cell={"textAlign": "center", "padding": "8px", "fontSize": "13px",
-                         "backgroundColor": CHARCOAL, "color": BODY_TEXT,
-                         "border": "none", "borderBottom": f"0.5px solid {BORDER}"},
-        style_header={"backgroundColor": CHARCOAL, "color": WARM_GRAY, "fontWeight": "500",
-                       "borderBottom": f"1px solid {GOLD}", "textTransform": "uppercase",
-                       "fontSize": "11px", "letterSpacing": "0.08em"},
+        style_cell=TABLE_STYLE_CELL,
+        style_header=TABLE_STYLE_HEADER,
         style_data_conditional=[{
             "if": {"state": "selected"},
             "backgroundColor": "rgba(201,168,76,0.15)", "border": f"1px solid {GOLD}",
@@ -612,10 +349,10 @@ def build_simulator_layout(df):
 
     return html.Div([
         html.H3("Scenario Simulator", className="page-title mb-1"),
-        html.P("Select a SKU, adjust its price, and see live portfolio-wide impact.",
+        html.P("Select an AB InBev SKU, adjust its price, and see live portfolio-wide impact.",
                className="page-subtitle mb-3"),
         html.Hr(),
-        section_title("Select a SKU"),
+        section_title("Select an AB InBev SKU"),
         sku_table,
         html.Hr(),
         html.Div(id="sim-controls", className="mb-4"),
@@ -700,15 +437,88 @@ def update_sim_results(price_changes, json_data):
     total_impact_pct = (total_impact / total_baseline * 100) if total_baseline else 0
     adjusted_count = sum(1 for v in price_changes.values() if v != 0)
 
-    summary = dbc.Row([
-        make_kpi_card("SKUs Adjusted", str(adjusted_count)),
-        make_kpi_card("Baseline Profit", f"\u00a3{total_baseline:,.0f}"),
-        make_kpi_card("Simulated Profit", f"\u00a3{total_new:,.0f}"),
-        make_kpi_card("Total Impact",
-                      f"\u00a3{total_impact:+,.0f} ({total_impact_pct:+.1f}%)",
-                      CHART_GREEN if total_impact >= 0 else CHART_RED),
-    ], className="mb-4")
+    # ── Market share reallocation ─────────────────────────────────────────────
+    # Volume that leaves an AB InBev SKU is split:
+    #   cannibalization_rate  → stays in AB InBev (siblings absorb)
+    #   (1 - cannibalization_rate) → goes to / comes from competitors
+    # Net AB InBev vol change per adjusted SKU = own_vol_change × (1 - cann_rate)
+    total_market_vol = df["volume_2025_units"].sum()
+    abi_baseline_vol = df[df["manufacturer"] == "AB InBev"]["volume_2025_units"].sum()
+    abi_baseline_share = abi_baseline_vol / total_market_vol * 100
 
+    cann_rate_map = df.set_index("sku_id")["cannibalization_rate"].to_dict()
+    adjusted_abi = sim_df[
+        (sim_df["manufacturer"] == "AB InBev") & (sim_df["price_change_pct"] != 0)
+    ]
+
+    wf_measures = ["absolute"]
+    wf_x = ["AB InBev\nBaseline"]
+    wf_y = [abi_baseline_share]
+    wf_text = [f"{abi_baseline_share:.1f}%"]
+    running_share = abi_baseline_share
+    total_net_abi_vol_change = 0.0  # accumulated in same pass — no second iterrows
+
+    for _, row in adjusted_abi.iterrows():
+        cann_rate = cann_rate_map.get(row["sku_id"], 0.1)
+        own_vol_change = row["new_volume"] - row["current_volume"]
+        # Net volume that crosses manufacturer boundary
+        net_abi_vol_change = own_vol_change * (1 - cann_rate)
+        total_net_abi_vol_change += net_abi_vol_change
+        share_change = net_abi_vol_change / total_market_vol * 100
+        running_share += share_change
+
+        label = row["sku_name"].replace(" Can", "").replace(" Bottle", "")
+        wf_measures.append("relative")
+        wf_x.append(label)
+        wf_y.append(share_change)
+        wf_text.append(f"{share_change:+.2f}pp")
+
+    wf_measures.append("total")
+    wf_x.append("AB InBev\nFinal")
+    wf_y.append(0)  # Plotly computes running total for "total" bars
+    wf_text.append(f"{running_share:.1f}%")
+
+    share_delta = running_share - abi_baseline_share
+
+    fig_waterfall = go.Figure(go.Waterfall(
+        orientation="v",
+        measure=wf_measures,
+        x=wf_x,
+        y=wf_y,
+        text=wf_text,
+        textposition="outside",
+        connector=dict(line=dict(color=BORDER, width=1, dash="dot")),
+        increasing=dict(marker=dict(color=CHART_GREEN)),
+        decreasing=dict(marker=dict(color=CHART_RED)),
+        totals=dict(marker=dict(color=ABI_NAVY)),
+        hovertemplate="%{x}: %{text}<extra></extra>",
+    ))
+    fig_waterfall.update_layout(
+        **CHART_LAYOUT_NO_YAXIS,
+        title=f"AB InBev Volume Market Share: Before \u2192 After  ({share_delta:+.2f}pp)",
+        height=380,
+        margin=dict(t=50, b=60),
+        yaxis=dict(
+            gridcolor=BORDER, gridwidth=0.5, griddash="dash",
+            showline=False, ticksuffix="%",
+            tickfont=dict(size=11, color=WARM_GRAY),
+            title=dict(text="Market Share (%)", font=dict(size=11, color=WARM_GRAY)),
+        ),
+    )
+
+    abi_share_kpi = make_kpi_card(
+        "ABI Share Before", f"{abi_baseline_share:.1f}%", BODY_TEXT
+    )
+    abi_share_after_kpi = make_kpi_card(
+        "ABI Share After", f"{running_share:.1f}%",
+        CHART_GREEN if share_delta >= 0 else CHART_RED
+    )
+    abi_share_delta_kpi = make_kpi_card(
+        "Share Δ", f"{share_delta:+.2f}pp",
+        CHART_GREEN if share_delta >= 0 else CHART_RED
+    )
+
+    # ── Existing profit impact chart ──────────────────────────────────────────
     changed_skus = sim_df[sim_df["price_change_pct"] != 0].sort_values("profit_impact", ascending=True)
 
     if not changed_skus.empty:
@@ -717,12 +527,24 @@ def update_sim_results(price_changes, json_data):
             marker_color=[CHART_GREEN if v >= 0 else CHART_RED for v in changed_skus["profit_impact"]],
             text=[f"\u00a3{v:+,.0f}" for v in changed_skus["profit_impact"]], textposition="outside",
         ))
-        fig_impact.update_layout(**CHART_LAYOUT, title="Impact of Adjusted SKUs",
+        fig_impact.update_layout(**CHART_LAYOUT, title="Profit Impact of Adjusted SKUs",
                                   height=max(250, len(changed_skus) * 35), margin=dict(t=40, l=220))
         fig_impact.add_vline(x=0, line_dash="dash", line_color=BORDER)
         impact_chart = dcc.Graph(figure=fig_impact)
     else:
         impact_chart = html.P("Adjust a SKU price to see impact.", className="text-muted text-center my-4")
+
+    summary = dbc.Row([
+        make_kpi_card("SKUs Adjusted", str(adjusted_count)),
+        make_kpi_card("Baseline Profit", f"\u00a3{total_baseline:,.0f}"),
+        make_kpi_card("Simulated Profit", f"\u00a3{total_new:,.0f}"),
+        make_kpi_card("Total Impact",
+                      f"\u00a3{total_impact:+,.0f} ({total_impact_pct:+.1f}%)",
+                      CHART_GREEN if total_impact >= 0 else CHART_RED),
+        abi_share_kpi,
+        abi_share_after_kpi,
+        abi_share_delta_kpi,
+    ], className="mb-4")
 
     result_data = []
     for _, row in sim_df.iterrows():
@@ -748,12 +570,8 @@ def update_sim_results(price_changes, json_data):
         ],
         sort_action="native",
         style_table={"overflowX": "auto"},
-        style_cell={"textAlign": "center", "padding": "8px", "fontSize": "13px",
-                         "backgroundColor": CHARCOAL, "color": BODY_TEXT,
-                         "border": "none", "borderBottom": f"0.5px solid {BORDER}"},
-        style_header={"backgroundColor": CHARCOAL, "color": WARM_GRAY, "fontWeight": "500",
-                       "borderBottom": f"1px solid {GOLD}", "textTransform": "uppercase",
-                       "fontSize": "11px", "letterSpacing": "0.08em"},
+        style_cell=TABLE_STYLE_CELL,
+        style_header=TABLE_STYLE_HEADER,
         style_data_conditional=[
             {"if": {"filter_query": "{_changed} = 1"}, "backgroundColor": "rgba(201,168,76,0.08)", "fontWeight": "500"},
             {"if": {"filter_query": "{Profit Impact} > 0", "column_id": "Profit Impact"}, "color": GOLD},
@@ -762,19 +580,139 @@ def update_sim_results(price_changes, json_data):
         page_size=50,
     )
 
+    # ── Competitor volume redistribution ──────────────────────────────────────
+    # total_net_abi_vol_change accumulated in the waterfall loop above (no second pass)
+    competitor_vol_gain_total = -total_net_abi_vol_change
+
+    non_abi = df[df["manufacturer"] != "AB InBev"]
+    non_abi_vol_by_mfr = non_abi.groupby("manufacturer")["volume_2025_units"].sum()
+    non_abi_total_vol = non_abi_vol_by_mfr.sum()
+
+    # Per-manufacturer volume change and market share delta
+    all_mfr_vol = df.groupby("manufacturer")["volume_2025_units"].sum()
+    mfr_vol_change = {"AB InBev": total_net_abi_vol_change}
+    for mfr, mfr_vol in non_abi_vol_by_mfr.items():
+        comp_share = mfr_vol / non_abi_total_vol if non_abi_total_vol > 0 else 0
+        mfr_vol_change[mfr] = competitor_vol_gain_total * comp_share
+
+    mfr_share_before = (all_mfr_vol / total_market_vol * 100).to_dict()
+    mfr_share_delta = {m: mfr_vol_change.get(m, 0) / total_market_vol * 100
+                       for m in mfr_share_before}
+    mfr_share_after = {m: mfr_share_before[m] + mfr_share_delta[m]
+                       for m in mfr_share_before}
+
+    # Build per-manufacturer extra profit from volume absorption
+    competitor_extra_profit = {}
+    for mfr, mfr_vol in non_abi_vol_by_mfr.items():
+        share = mfr_vol / non_abi_total_vol if non_abi_total_vol > 0 else 0
+        vol_gain = competitor_vol_gain_total * share
+        mfr_df = df[df["manufacturer"] == mfr]
+        avg_price = mfr_df["current_price_per_unit"].mean()
+        avg_profit_pct = mfr_df["profit_pct_per_ml"].mean()
+        avg_ml = mfr_df["unit_volume_ml"].mean()
+        competitor_extra_profit[mfr] = vol_gain * avg_price * avg_ml * avg_profit_pct
+
     mfr_impact = sim_df.groupby("manufacturer")["profit_impact"].sum().reset_index()
+    mfr_impact["profit_impact"] = mfr_impact.apply(
+        lambda r: r["profit_impact"] + competitor_extra_profit.get(r["manufacturer"], 0),
+        axis=1,
+    )
     mfr_impact = mfr_impact.sort_values("profit_impact", ascending=True)
     fig_mfr = go.Figure(go.Bar(
         x=mfr_impact["profit_impact"], y=mfr_impact["manufacturer"], orientation="h",
         marker_color=[CHART_GREEN if v >= 0 else CHART_RED for v in mfr_impact["profit_impact"]],
         text=[f"\u00a3{v:+,.0f}" for v in mfr_impact["profit_impact"]], textposition="outside",
     ))
-    fig_mfr.update_layout(**CHART_LAYOUT, title="Impact by Manufacturer", height=250, margin=dict(t=40, l=150))
+    fig_mfr.update_layout(
+        **CHART_LAYOUT,
+        title="Profit Impact by Manufacturer (incl. volume redistribution)",
+        height=250, margin=dict(t=40, l=150),
+    )
     fig_mfr.add_vline(x=0, line_dash="dash", line_color=BORDER)
+
+    # ── Market share delta chart (all manufacturers) ──────────────────────────
+    ms_mfrs = sorted(mfr_share_delta.keys(),
+                     key=lambda m: mfr_share_delta[m], reverse=True)
+    ms_deltas = [mfr_share_delta[m] for m in ms_mfrs]
+    ms_colors = [CHART_GREEN if d >= 0 else CHART_RED for d in ms_deltas]
+
+    fig_ms_delta = go.Figure(go.Bar(
+        x=ms_mfrs,
+        y=ms_deltas,
+        marker_color=ms_colors,
+        text=[f"{d:+.2f}pp" for d in ms_deltas],
+        textposition="outside",
+        hovertemplate="%{x}<br>Before: %{customdata[0]:.1f}%<br>After: %{customdata[1]:.1f}%<br>Δ: %{y:+.2f}pp<extra></extra>",
+        customdata=[[mfr_share_before[m], mfr_share_after[m]] for m in ms_mfrs],
+    ))
+    fig_ms_delta.update_layout(
+        **CHART_LAYOUT_NO_YAXIS,
+        title="Volume Market Share \u0394 by Manufacturer (pp)",
+        height=320,
+        margin=dict(t=50, b=40),
+        yaxis=dict(
+            gridcolor=BORDER, gridwidth=0.5, griddash="dash",
+            showline=False, ticksuffix="pp",
+            tickfont=dict(size=11, color=WARM_GRAY),
+            title=dict(text="\u0394 Market Share (pp)", font=dict(size=11, color=WARM_GRAY)),
+            zeroline=True, zerolinecolor=BORDER, zerolinewidth=1,
+        ),
+    )
+
+    # Before / after / delta table for all manufacturers
+    ms_table_data = []
+    for m in ms_mfrs:
+        ms_table_data.append({
+            "Manufacturer": m,
+            "Before (%)": round(mfr_share_before[m], 2),
+            "After (%)": round(mfr_share_after[m], 2),
+            "\u0394 (pp)": round(mfr_share_delta[m], 3),
+            "Vol Gained": f"{mfr_vol_change.get(m, 0):+,.0f}",
+        })
+
+    ms_table = dash_table.DataTable(
+        data=ms_table_data,
+        columns=[
+            {"name": "Manufacturer", "id": "Manufacturer"},
+            {"name": "Before (%)", "id": "Before (%)", "type": "numeric"},
+            {"name": "After (%)", "id": "After (%)", "type": "numeric"},
+            {"name": "\u0394 (pp)", "id": "\u0394 (pp)", "type": "numeric"},
+            {"name": "Volume Gained (units)", "id": "Vol Gained"},
+        ],
+        style_table={"overflowX": "auto"},
+        style_cell=TABLE_STYLE_CELL,
+        style_header=TABLE_STYLE_HEADER,
+        style_data_conditional=[
+            {"if": {"filter_query": "{\u0394 (pp)} > 0", "column_id": "\u0394 (pp)"},
+             "color": CHART_GREEN, "fontWeight": "500"},
+            {"if": {"filter_query": "{\u0394 (pp)} < 0", "column_id": "\u0394 (pp)"},
+             "color": CHART_RED, "fontWeight": "500"},
+            {"if": {"filter_query": "{Vol Gained} contains \"+\"", "column_id": "Vol Gained"},
+             "color": CHART_GREEN},
+            {"if": {"filter_query": "{Vol Gained} contains \"-\"", "column_id": "Vol Gained"},
+             "color": CHART_RED},
+        ],
+    )
 
     return html.Div([
         section_title("Portfolio Impact"),
         summary,
+        html.Hr(),
+        section_title("AB InBev Market Share: Before \u2192 After"),
+        html.P(
+            "Volume lost/gained by AB InBev SKUs is split: cannibalization rate stays within AB InBev "
+            "(siblings absorb), the remainder shifts to/from competitors.",
+            style={"fontSize": "12px", "color": WARM_GRAY, "marginBottom": "8px"},
+        ),
+        dbc.Row([
+            dbc.Col(dcc.Graph(figure=fig_waterfall), width=7),
+            dbc.Col([
+                dcc.Graph(figure=fig_ms_delta),
+                ms_table,
+            ], width=5),
+        ], className="mb-2"),
+        html.Hr(),
+        section_title("Profit Impact by SKU"),
         dbc.Row([
             dbc.Col(impact_chart, width=7),
             dbc.Col(dcc.Graph(figure=fig_mfr), width=5),
@@ -862,12 +800,8 @@ def build_detail_layout(sku_id, df):
         data=table_data,
         columns=[{"name": c, "id": c} for c in table_data[0]],
         style_table={"overflowX": "auto"},
-        style_cell={"textAlign": "center", "padding": "8px", "fontSize": "13px",
-                         "backgroundColor": CHARCOAL, "color": BODY_TEXT,
-                         "border": "none", "borderBottom": f"0.5px solid {BORDER}"},
-        style_header={"backgroundColor": CHARCOAL, "color": WARM_GRAY, "fontWeight": "500",
-                       "borderBottom": f"1px solid {GOLD}", "textTransform": "uppercase",
-                       "fontSize": "11px", "letterSpacing": "0.08em"},
+        style_cell=TABLE_STYLE_CELL,
+        style_header=TABLE_STYLE_HEADER,
         style_data_conditional=[{
             "if": {"filter_query": '{Price \u0394 (%)} = "' + best_pct_str + '"'},
             "backgroundColor": "rgba(201,168,76,0.15)", "fontWeight": "500",
@@ -902,12 +836,8 @@ def build_detail_layout(sku_id, df):
     competitor_table = dash_table.DataTable(
         data=comp_data,
         columns=[{"name": c, "id": c} for c in comp_data[0]] if comp_data else [],
-        style_cell={"textAlign": "center", "padding": "8px", "fontSize": "13px",
-                         "backgroundColor": CHARCOAL, "color": BODY_TEXT,
-                         "border": "none", "borderBottom": f"0.5px solid {BORDER}"},
-        style_header={"backgroundColor": CHARCOAL, "color": WARM_GRAY, "fontWeight": "500",
-                       "borderBottom": f"1px solid {GOLD}", "textTransform": "uppercase",
-                       "fontSize": "11px", "letterSpacing": "0.08em"},
+        style_cell=TABLE_STYLE_CELL,
+        style_header=TABLE_STYLE_HEADER,
     )
 
     mfr_logo = LOGO_MAP.get(sku_row["manufacturer"], "")

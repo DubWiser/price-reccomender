@@ -189,3 +189,190 @@ def simulate_portfolio(df: pd.DataFrame, price_changes: dict) -> pd.DataFrame:
         })
 
     return pd.DataFrame(rows)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Iteration 5 — analytics helpers
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_cross_elasticity_matrix(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build an N×N synthetic cross-elasticity matrix from own-price elasticity,
+    cannibalization rate, segment, manufacturer, and competitor links.
+    """
+    skus = df["sku_id"].tolist()
+    n = len(skus)
+    matrix = np.zeros((n, n))
+
+    # Build lookup helpers
+    idx = {s: i for i, s in enumerate(skus)}
+    mfr = df.set_index("sku_id")["manufacturer"].to_dict()
+    seg = df.set_index("sku_id")["price_segment"].to_dict()
+    elas = df.set_index("sku_id")["elasticity"].to_dict()
+    cann = df.set_index("sku_id")["cannibalization_rate"].to_dict()
+    comp1 = df.set_index("sku_id")["competitor_sku_1"].to_dict()
+    comp2 = df.set_index("sku_id")["competitor_sku_2"].to_dict()
+
+    competitor_pairs = set()
+    for s in skus:
+        for c in (comp1.get(s), comp2.get(s)):
+            if c and c in idx:
+                competitor_pairs.add((s, c))
+                competitor_pairs.add((c, s))
+
+    for i, a in enumerate(skus):
+        for j, b in enumerate(skus):
+            if i == j:
+                continue
+
+            same_mfr = mfr[a] == mfr[b]
+            same_seg = seg[a] == seg[b]
+
+            if same_mfr and same_seg:
+                val = cann[a] * 0.5
+            elif same_mfr:
+                val = cann[a] * 0.2
+            elif same_seg:
+                val = abs(elas[a]) * 0.05
+            else:
+                val = 0.015
+
+            # Competitor bonus
+            if (a, b) in competitor_pairs:
+                val *= 1.5
+
+            matrix[i][j] = np.clip(val, 0.0, 0.3)
+
+    return pd.DataFrame(matrix, index=skus, columns=skus)
+
+
+def compute_cannibalization_risk(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-SKU cannibalization breakdown: cannibalised volume, safe volume, severity."""
+    out = df[["sku_id", "sku_name", "manufacturer", "brand"]].copy()
+    out["segment"] = df["price_segment"]
+    out["cannibalization_rate"] = df["cannibalization_rate"]
+    out["cannibalised_volume"] = (df["volume_2025_units"] * df["cannibalization_rate"]).round().astype(int)
+    out["safe_volume"] = (df["volume_2025_units"] - out["cannibalised_volume"]).astype(int)
+    out["total_volume"] = df["volume_2025_units"]
+    out["severity"] = pd.cut(
+        df["cannibalization_rate"],
+        bins=[-np.inf, 0.08, 0.12, np.inf],
+        labels=["Low", "Moderate", "High"],
+    )
+    return out.reset_index(drop=True)
+
+
+def generate_executive_insights(df: pd.DataFrame, overview_data: pd.DataFrame) -> dict:
+    """Auto-generate numbered insights and actionable recommendations."""
+
+    manufacturers = sorted(df["manufacturer"].unique())
+    total_skus = len(df)
+
+    # ── Market structure ──
+    mfr_skus = df.groupby("manufacturer").size().to_dict()
+    mfr_vol = df.groupby("manufacturer")["volume_2025_units"].sum().to_dict()
+    total_vol = sum(mfr_vol.values())
+    mfr_share = {m: round(v / total_vol * 100, 1) for m, v in mfr_vol.items()}
+    market_leader = max(mfr_share, key=mfr_share.get)
+
+    market_structure = {
+        "total_skus": total_skus,
+        "manufacturers": manufacturers,
+        "sku_counts": mfr_skus,
+        "volume_shares": mfr_share,
+        "market_leader": market_leader,
+        "segments": sorted(df["price_segment"].unique()),
+    }
+
+    # ── Elasticity risks ──
+    highly_elastic = df[df["elasticity"] < -2.0].sort_values("elasticity")
+    elastic = df[(df["elasticity"] >= -2.0) & (df["elasticity"] < -1.5)]
+    inelastic = df[df["elasticity"] >= -1.5]
+
+    elasticity_insights = []
+    for _, sku in highly_elastic.head(5).iterrows():
+        elasticity_insights.append(
+            f"{sku['sku_name']} has high price sensitivity (elasticity {sku['elasticity']:.2f}). "
+            f"A 5% price increase would reduce volume by {abs(sku['elasticity'] * 5):.1f}%."
+        )
+    if not elasticity_insights:
+        elasticity_insights.append("No SKUs show extreme price sensitivity (all elasticities > -2.0).")
+
+    elasticity_risks = {
+        "highly_elastic_count": len(highly_elastic),
+        "elastic_count": len(elastic),
+        "inelastic_count": len(inelastic),
+        "insights": elasticity_insights,
+    }
+
+    # ── Cannibalization threats ──
+    cann_df = compute_cannibalization_risk(df)
+    high_risk = cann_df[cann_df["severity"] == "High"]
+    threats_by_mfr = {}
+    for m in manufacturers:
+        mfr_high = high_risk[high_risk["manufacturer"] == m]
+        if not mfr_high.empty:
+            names = mfr_high["sku_name"].tolist()
+            total_at_risk = mfr_high["cannibalised_volume"].sum()
+            threats_by_mfr[m] = {
+                "skus": names,
+                "volume_at_risk": total_at_risk,
+            }
+
+    cannibalization_threats = {
+        "high_risk_count": len(high_risk),
+        "moderate_count": len(cann_df[cann_df["severity"] == "Moderate"]),
+        "low_count": len(cann_df[cann_df["severity"] == "Low"]),
+        "by_manufacturer": threats_by_mfr,
+    }
+
+    # ── Recommendations ──
+    recommendations = []
+
+    # Price decreases for highly elastic value SKUs
+    elastic_value = highly_elastic[highly_elastic["price_segment"] == "Value"]
+    for _, sku in elastic_value.head(2).iterrows():
+        recommendations.append({
+            "direction": "↓",
+            "sku": sku["sku_name"],
+            "rationale": f"High elasticity ({sku['elasticity']:.2f}) in Value segment — "
+                         f"a price cut would drive significant volume gains.",
+        })
+
+    # Price increases for inelastic premium SKUs
+    inelastic_prem = inelastic[inelastic["price_segment"] == "Premium"]
+    for _, sku in inelastic_prem.head(2).iterrows():
+        recommendations.append({
+            "direction": "↑",
+            "sku": sku["sku_name"],
+            "rationale": f"Low sensitivity ({sku['elasticity']:.2f}) in Premium segment — "
+                         f"price increase would boost profit with limited volume loss.",
+        })
+
+    # Hold for moderate elasticity, high cannibalization
+    mod_high_cann = df[(df["elasticity"].between(-2.0, -1.5)) & (df["cannibalization_rate"] >= 0.10)]
+    for _, sku in mod_high_cann.head(1).iterrows():
+        recommendations.append({
+            "direction": "→",
+            "sku": sku["sku_name"],
+            "rationale": f"Moderate sensitivity ({sku['elasticity']:.2f}) but high cannibalization "
+                         f"({sku['cannibalization_rate']:.0%}) — hold price to avoid sibling erosion.",
+        })
+
+    # Ensure at least 3 recommendations
+    if len(recommendations) < 3:
+        for _, sku in overview_data.head(3 - len(recommendations)).iterrows():
+            action = sku.get("action", "Hold Price")
+            arrow = "↑" if "Increase" in action else "↓" if "Decrease" in action else "→"
+            recommendations.append({
+                "direction": arrow,
+                "sku": sku["sku_name"],
+                "rationale": f"Optimal action based on elasticity/cannibalization trade-off.",
+            })
+
+    return {
+        "market_structure": market_structure,
+        "elasticity_risks": elasticity_risks,
+        "cannibalization_threats": cannibalization_threats,
+        "recommendations": recommendations[:5],
+    }
