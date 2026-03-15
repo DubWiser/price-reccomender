@@ -1,0 +1,21 @@
+sku_id,manufacturer,brand,sku_name,price_segment,current_price_per_unit,elasticity,cannibalization_rate,profit_pct_per_ml,volume_2025_units,unit_volume_ml,competitor_sku_1,competitor_sku_2
+SKU001,AB InBev,Budweiser,Budweiser 330ml Can,Core,1.20,-2.1,0.12,0.18,1200000,330,SKU002,SKU003
+SKU002,AB InBev,Budweiser,Budweiser 500ml Can,Core,1.75,-1.8,0.10,0.19,900000,500,SKU001,SKU003
+SKU003,AB InBev,Stella Artois,Stella Artois 330ml Can,Premium,1.60,-1.5,0.08,0.22,800000,330,SKU004,SKU001
+SKU004,AB InBev,Stella Artois,Stella Artois 660ml Bottle,Premium,2.80,-1.3,0.06,0.24,400000,660,SKU003,SKU005
+SKU005,AB InBev,Beck's,Beck's 275ml Bottle,Value,0.95,-2.5,0.15,0.14,600000,275,SKU001,SKU006
+SKU006,Heineken,Heineken,Heineken 330ml Can,Core,1.25,-2.0,0.11,0.20,1100000,330,SKU007,SKU008
+SKU007,Heineken,Heineken,Heineken 500ml Can,Core,1.85,-1.7,0.09,0.21,750000,500,SKU006,SKU008
+SKU008,Heineken,Amstel,Amstel 330ml Can,Value,1.00,-2.3,0.13,0.15,700000,330,SKU006,SKU009
+SKU009,Heineken,Birra Moretti,Birra Moretti 330ml Bottle,Premium,1.55,-1.4,0.07,0.23,500000,330,SKU010,SKU006
+SKU010,Heineken,Birra Moretti,Birra Moretti 660ml Bottle,Premium,2.90,-1.2,0.05,0.25,300000,660,SKU009,SKU007
+SKU011,Carlsberg,Carlsberg,Carlsberg 330ml Can,Core,1.15,-2.2,0.12,0.17,950000,330,SKU012,SKU013
+SKU012,Carlsberg,Carlsberg,Carlsberg 500ml Can,Core,1.70,-1.9,0.10,0.18,650000,500,SKU011,SKU013
+SKU013,Carlsberg,San Miguel,San Miguel 330ml Bottle,Premium,1.50,-1.6,0.08,0.21,550000,330,SKU014,SKU011
+SKU014,Carlsberg,San Miguel,San Miguel 660ml Bottle,Premium,2.75,-1.3,0.06,0.23,280000,660,SKU013,SKU012
+SKU015,Carlsberg,Kronenbourg,Kronenbourg 1664 330ml Can,Value,1.05,-2.4,0.14,0.16,480000,330,SKU011,SKU016
+SKU016,Molson Coors,Coors,Coors Light 330ml Can,Value,1.10,-2.3,0.13,0.16,820000,330,SKU017,SKU018
+SKU017,Molson Coors,Coors,Coors Light 500ml Can,Value,1.65,-2.0,0.11,0.17,560000,500,SKU016,SKU018
+SKU018,Molson Coors,Carling,Carling 500ml Can,Value,1.50,-2.1,0.12,0.15,1000000,500,SKU016,SKU019
+SKU019,Molson Coors,Cobra,Cobra 330ml Bottle,Premium,1.45,-1.7,0.08,0.20,420000,330,SKU020,SKU016
+SKU020,Molson Coors,Cobra,Cobra 660ml Bottle,Premium,2.60,-1.4,0.06,0.22,220000,660,SKU019,SKU018
