@@ -1,5 +1,31 @@
 # Changelog
 
+## Iteration 1 — CSV/Excel Upload + Sortable Verdict Table
+
+**Status:** COMPLETED
+
+**Planned scope:**
+- Single-page web UI where user uploads a CSV/Excel file and sees a sortable verdict table (SKU name, current price, verdict, estimated revenue impact)
+
+**Delivered:**
+- [x] **File upload** — `dcc.Upload` component in sidebar accepting `.csv` and `.xlsx` files
+- [x] **Column validation** — uploaded files checked for all 13 required columns; clear error messages on failure
+- [x] **Dynamic data pipeline** — `dcc.Store` holds active dataset (default or uploaded); all callbacks react to data changes
+- [x] **Sortable + filterable verdict table** — `DataTable` with native sorting (multi-column), native filtering, color-coded verdict cells (Increase/Hold/Decrease)
+- [x] **Full portfolio Excel file** — `data/full_portfolio.xlsx` with 42 SKUs across 4 manufacturers (AB InBev, Heineken, Carlsberg, Molson Coors) and 17 brands
+- [x] **All existing views preserved** — overview charts, SKU detail view, cascading filters all work with uploaded data
+- [x] **14 tests passing** — pricing engine, upload parsing (CSV/Excel/invalid), overview data, verdict values
+
+**Files changed:**
+- `app.py` — added upload component, `dcc.Store` data pipeline, verdict table, dynamic filter callbacks
+- `pyproject.toml` — added `openpyxl` dependency
+- `docs/features.md` — updated iteration 0 status and tech stack
+
+**Files added:**
+- `data/full_portfolio.xlsx` — 42-SKU test portfolio
+- `scripts/generate_portfolio.py` — portfolio generation script
+- `tests/test_iteration1.py` — 14 tests for iteration 1
+
 ## Iteration 0 — Migrate from Streamlit to Dash
 
 **Status:** COMPLETED
