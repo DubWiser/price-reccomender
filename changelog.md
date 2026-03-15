@@ -1,5 +1,30 @@
 # Changelog
 
+## Iteration 4 — AB InBev × McKinsey UI Redesign, CSV Export, Edge Cases
+
+**Status:** COMPLETED
+
+**Planned scope:**
+- Export to CSV, color coding (red/amber/green), edge case handling for missing data
+- Full UI redesign with AB InBev brand colors and McKinsey consulting-style presentation
+
+**Delivered:**
+- [x] **AB InBev color palette** — navy (#002B5C), gold (#C8A951), red (#E30613) applied across all UI elements
+- [x] **McKinsey executive styling** — Inter font, clean layout, left-bar accent section titles, uppercase labels, minimal shadows
+- [x] **Custom CSS** — `assets/style.css` with sidebar gradient, gold-accented KPI cards, styled DataTables, nav buttons, recommendation banners
+- [x] **CSV export** — `dcc.Download` component with export button on overview; downloads full verdict table as CSV
+- [x] **Red/amber/green verdict coding** — Increase (green), Hold (amber), Decrease (red) with background colors in tables and recommendation banners
+- [x] **Edge case handling** — empty file detection, missing critical column rows dropped with warning, empty DataFrame guards on all views
+- [x] **Nav buttons** — view switcher changed from dropdown to styled buttons (gold active, transparent inactive with hover)
+- [x] **Consistent chart theming** — `CHART_LAYOUT` dict applied to all Plotly charts for uniform font, grid, and color styling
+- [x] **All 23 tests passing**
+
+**Files changed:**
+- `app.py` — full rewrite applying new color scheme, CSS classes, export callback, edge case handling
+
+**Files added:**
+- `assets/style.css` — AB InBev × McKinsey custom stylesheet
+
 ## Iteration 2 — Scenario Simulator
 
 **Status:** COMPLETED
